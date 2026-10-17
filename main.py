@@ -98,8 +98,18 @@ def parse_args():
 
 def motor_control_loop(bot, worldstate):
     """ Motor Control Loop. """
+    ws = worldstate
     while RUNNING:
-        # TODO: Move that robot!
+        # Start by updating the rangefinder and imu data.
+        dist = bot.read_rangefinder()
+        logger.debug(f"Rangefinder distance: {dist}cm")
+        ws.update_rangefinder(dist)
+        # TODO: Should also read the IMU here.
+        
+        # Drive, based on current behavior
+        if ws.behavior == "IDLE":
+            # Stop the motors
+            bot.drive_stop()
         time.sleep(0.02)
     return
 
