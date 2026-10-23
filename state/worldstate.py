@@ -17,11 +17,18 @@ class PerceptionState:
 
 @dataclass
 class OdometryState:
-    x_pos_m: float = 0.0                 # Accumulated dead-reckoning/encoder pos
-    y_pos_m: float = 0.0
-    heading_deg: float = 0.0             # Accumulated yaw
-    linear_velocity: float = 0.0         # Current estimated speed (m/s)
-    total_distance_m: float = 0.0
+    linear_velocity: float = 0.0
+    left_distance_cm: float = 0.0
+    right_distance_cm: float = 0.0
+    total_distance_cm: float = 0.0
+    last_update: float = 0.0
+
+@dataclass
+class OrientationState:
+    heading: float = 0.0
+    yaw: float = 0.0
+    pitch: float = 0.0
+    roll: float = 0.0
 
 @dataclass
 class DiagnosticsState:
@@ -36,6 +43,7 @@ class WorldState:
         self._lock = threading.Lock()
         self.perception = PerceptionState()
         self.odometry = OdometryState()
+        self.orientation = OrientationState()
         self.diagnostics = DiagnosticsState()
         self.behavior: str = "IDLE"
 
@@ -53,14 +61,27 @@ class WorldState:
             self.perception.obstacle_distance_m = distance_m
             self.perception.rangefinder_timestamp = time.time()
 
-    def update_odometry(self, dx: float, dy: float, dtheta: float, dt: float):
+    def update_orientation(self, heading: float, yaw: float, pitch: float, roll: float):
         with self._lock:
-            self.odometry.x_pos_m += dx
-            self.odometry.y_pos_m += dy
-            self.odometry.heading_deg = (self.odometry.heading_deg + dtheta) % 360.0
-            dist = (dx**2 + dy**2)**0.5
-            self.odometry.total_distance_m += dist
-            self.odometry.linear_velocity = (dist / dt) if dt > 0 else 0.0
+            self.orientation.heading = heading
+            self.orientation.yaw = yaw
+            self.orientation.pitch = pitch
+            self.orientation.roll = roll
+
+    def update_odometry(self, left_distance_cm: float, right_distance_cm: float, heading: float):
+        with self._lock:
+            # There's probably a way to figure these out using the three variables
+            # but for now, just record them.
+            now = time.time()
+            last_distance = self.odometry.total_distance_cm
+            self.odometry.left_distance_cm = left_distance_cm
+            self.odometry.right_distance_cm = right_distance_cm
+            # Terrible approximation below
+            self.odometry.total_distance_cm = (left_distance_cm + right_distance_cm) / 2
+            # Even more terrible approximations
+            self.odometry.linear_velocity = (self.odometry.total_distance_cm - last_distance) / (now - self.odometry.last_update)
+            self.odometry.last_update = now
+            # TODO: Figure out where we are based on the data here.
 
     def update_diagnostics(self, volts: float, temp_c: float):
         with self._lock:

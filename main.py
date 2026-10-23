@@ -100,11 +100,18 @@ def motor_control_loop(bot, worldstate):
     """ Motor Control Loop. """
     ws = worldstate
     while RUNNING:
-        # Start by updating the rangefinder and imu data.
+        # Start by updating the world state.
         dist = bot.read_rangefinder()
         logger.debug(f"Rangefinder distance: {dist}cm")
         ws.update_rangefinder(dist)
-        # TODO: Should also read the IMU here.
+        imu = bot.read_imu()
+        logger.debug(f"IMU Stats: {imu}")
+        ws.update_orientation(imu['heading'], imu['yaw'], imu['pitch'], imu['roll'])
+        left_dist = bot.get_left_encoder_position()
+        logger.debug(f"Left Distance: {left_dist}")
+        right_dist = bot.get_right_encoder_position()
+        logger.debug(f"Right Distance: {right_dist}")
+        ws.update_odometry(left_dist, right_dist)
         
         # Drive, based on current behavior
         if ws.behavior == "IDLE":
