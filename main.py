@@ -111,7 +111,7 @@ def motor_control_loop(bot, worldstate):
         logger.debug(f"Left Distance: {left_dist}")
         right_dist = bot.get_right_encoder_position()
         logger.debug(f"Right Distance: {right_dist}")
-        ws.update_odometry(left_dist, right_dist)
+        ws.update_odometry(left_dist, right_dist, imu['heading'])
         
         # Drive, based on current behavior
         if ws.behavior == "IDLE":
