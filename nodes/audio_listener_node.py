@@ -27,6 +27,10 @@ class AudioListener(threading.Thread):
         self.samplerate = 16000 #Hardcoding for now.
         self.model = Model(lang="en-us")
         self.talking = False # This is used to mute the microphone when the robot is talking
+        # ROTOBOT 
+        self.wake_phrases = ["row toe bot", "rotor bot", "row to bot", "[unk]"]
+        self.wake_grammar = json.dumps(self.wake_phrases)
+        self.awake = False
         self.running = True
 
     def callback(self, indata, frames, time, status):
@@ -46,15 +50,29 @@ class AudioListener(threading.Thread):
             self.event_queue.put(event)
 
     def run(self):
+        wake_rec = KaldiRecognizer(self.model, self.samplerate, self.wake_grammar)
+        rec = KaldiRecognizer(self.model, self.samplerate)
+        
         while self.running:
             logger.info(f"opening input stream on device {self.device}")
             with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device, dtype="int16", channels=1, callback=self.callback):
-                rec = KaldiRecognizer(self.model, self.samplerate)
                 while True:
                     data = self.audio_queue.get()
-                    if rec.AcceptWaveform(data):
-                        res = json.loads(rec.Result())
-                        text = res.get("text", "").strip()
-                        if text:
-                            logger.debug(f"OH: {text}")
+                    
+                    if not self.awake:
+                        wake_rec.AcceptWaveform(data)
+                        partial = json.loads(wake_rec.PartialResult()).get("partial", "")
+                        if any(phrase in partial for phrase in self.wake_phrases):
+                            logger.info("Wake word detected! Listening for command...")
+                            wake_rec.Reset()
+                            rec.Reset()
+                            self.awake = True
+                    else:
+                        if rec.AcceptWaveform(data):
+                            res = json.loads(rec.Result())
+                            text = res.get("text", "").strip()
+                            if text:
+                                logger.debug(f"OH: {text}")
+                            rec.Reset()
+                            self.awake = False
                             self.process_text(text)

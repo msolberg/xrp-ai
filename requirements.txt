@@ -1,1 +1,3 @@
 xrp-usb-controller >= 0.3.0
+sounddevice
+vosk

@@ -17,6 +17,8 @@ from serial.serialutil import SerialException
 from state.worldstate import WorldState
 from state.eventloop import EventLoop
 
+from nodes.audio_listener_node import AudioListener
+
 RUNNING = True
 SERIAL_PORT = "/dev/ttyACM0"
 
@@ -138,7 +140,9 @@ def main():
     eventloop = EventLoop()
     eventloop.put("PROGRAM_START")
 
-    # TODO: Initialize the Audio Listener Thread
+    # Initialize the Audio Listener Thread
+    audiolistener = AudioListener(eventloop, 0)
+    audiolistener.start()
 
     # TODO: Initialize the Computer Vision Thread
 
