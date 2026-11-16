@@ -10,11 +10,20 @@ class RotobotEvent:
     payload: {} # Dictionary
     timestamp: float
 
-    def __init__(self, event_type, payload):
+    def __init__(self, event_type, payload={}):
         # Initialize the robot event
-        self.event_type = event_type
-        self.payload = payload
+        self._event_type = event_type
+        self._payload = payload
         self.timestamp = time.time()
+
+    @property
+    def payload(self):
+        return self._payload
+
+    @property
+    def event_type(self):
+        return str(self._event_type)
+    
 
 class EventLoop:
     """ Event loop for the rotobot. """
@@ -32,9 +41,14 @@ class EventLoop:
         """ Return the next event in the queue """
         return self.q.get(timeout=self.timeout)
     
-    def put(self, event_type, event_payload=dict()):
+    def put(self, event: RotobotEvent):
         """ Push an event onto the queue """
-        re = RotobotEvent(event_type = event_type, payload = event_payload)
-        logger.debug(f"Putting {event_type} onto the queue")
-        self.q.put(re)
+        if not isinstance(event, RotobotEvent):
+            raise TypeError(f"Expected RotobotEvent, got {type(event).__name__}")
+        logger.debug(f"Putting {event.event_type} onto the queue")
+        self.q.put(event)
  
+    def task_done(self):
+        """Acknowledge a task as complete"""
+        self.q.task_done()
+    

@@ -46,7 +46,7 @@ class AudioListener(threading.Thread):
         else:
             # Make a robot text event and drop it in the event queue
             logger.info(f"Got {text} from microphone - sending VOICE_COMMAND")
-            event = RotobotEvent('VOICE_COMMAND', text)
+            event = RotobotEvent('VOICE_COMMAND', {"text": text})
             self.event_queue.put(event)
 
     def run(self):

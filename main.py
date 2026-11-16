@@ -15,13 +15,13 @@ from xrp_usb_controller import XRPController
 from serial.serialutil import SerialException
 
 from state.worldstate import WorldState
-from state.eventloop import EventLoop
+from state.eventloop import EventLoop, RotobotEvent
 
 from nodes.audio_listener_node import AudioListener
+from nodes.executive_node import Executive
 
 RUNNING = True
 SERIAL_PORT = "/dev/ttyACM0"
-
 
 # signal handling and logging
 def signal_handler(sig, frame):
@@ -138,15 +138,20 @@ def main():
 
     # Start the Event Loop
     eventloop = EventLoop()
-    eventloop.put("PROGRAM_START")
+    start_event = RotobotEvent("PROGRAM_START")
+    eventloop.put(start_event)
 
     # Initialize the Audio Listener Thread
-    audiolistener = AudioListener(eventloop, 0)
+    audiolistener = AudioListener(eventloop, args.microphone)
     audiolistener.start()
 
     # TODO: Initialize the Computer Vision Thread
 
     # TODO: Initialize the Telemetry Thread
+
+    # Start the brains of the operation.
+    executive = Executive(eventloop)
+    executive.start()
 
     try:
         with XRPController(port=args.port) as bot:
