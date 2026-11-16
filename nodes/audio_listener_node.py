@@ -28,8 +28,8 @@ class AudioListener(threading.Thread):
         self.model = Model(lang="en-us")
         self.talking = False # This is used to mute the microphone when the robot is talking
         # ROTOBOT 
-        self.wake_phrases = ["row toe bot", "rotor bot", "row to bot", "[unk]"]
-        self.wake_grammar = json.dumps(self.wake_phrases)
+        self.wake_phrases = ["row toe bot", "rotor bot", "row to bot"]
+        self.wake_grammar = json.dumps(self.wake_phrases + ["[unk]"])
         self.awake = False
         self.running = True
 
