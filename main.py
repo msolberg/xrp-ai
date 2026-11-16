@@ -150,7 +150,7 @@ def main():
     # TODO: Initialize the Telemetry Thread
 
     # Start the brains of the operation.
-    executive = Executive(eventloop)
+    executive = Executive(eventloop, args.speaker)
     executive.start()
 
     try:
