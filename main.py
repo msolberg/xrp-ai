@@ -18,6 +18,7 @@ from state.worldstate import WorldState
 from state.eventloop import EventLoop, RotobotEvent
 
 from nodes.audio_listener_node import AudioListener
+from nodes.computer_vision_node import CameraWatcher
 from nodes.executive_node import Executive
 
 RUNNING = True
@@ -145,7 +146,9 @@ def main():
     audiolistener = AudioListener(eventloop, args.microphone)
     audiolistener.start()
 
-    # TODO: Initialize the Computer Vision Thread
+    # Initialize the Computer Vision Thread
+    camerawatcher = CameraWatcher(eventloop, args.camera)
+    camerawatcher.start()
 
     # TODO: Initialize the Telemetry Thread
 
