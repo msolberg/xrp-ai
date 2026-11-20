@@ -3,3 +3,5 @@ sounddevice
 vosk
 piper-tts
 numpy
+opencv-python
+ultralytics

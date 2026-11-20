@@ -174,6 +174,7 @@ RUN rpm -ivh /tmp/epel-release-latest-9.noarch.rpm && \
 
 # Copy Tegra CUDA/cuDNN runtime libraries and register them with the dynamic linker
 COPY --from=builder /opt/cuda-runtime-libs/ /usr/local/cuda/lib64/
+COPY --from=builder /usr/local/cuda/LICENSE /usr/local/cuda/LICENSE
 RUN echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/99-cuda.conf && ldconfig
 
 # Copy the pre-built Python 3.12 virtualenv (project deps + custom torch & torchvision)
