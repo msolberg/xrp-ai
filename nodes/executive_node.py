@@ -16,8 +16,6 @@ from state.eventloop import RotobotEvent
 
 logger = logging.getLogger(__name__)
 
-STOP_SIGNAL = object()
-
 class Executive(threading.Thread):
     def __init__(self, event_queue: queue.Queue, playback_device=4, llm_url="http://host.containers.internal:8080/v1/chat/completions"):
         super().__init__(daemon=True)
@@ -134,7 +132,6 @@ class Executive(threading.Thread):
 
     def stop(self):
         self.running = False
-        self.event_queue.put(STOP_SIGNAL)
 
     def run(self):
         self.clear_context()

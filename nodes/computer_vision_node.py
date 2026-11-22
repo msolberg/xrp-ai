@@ -21,7 +21,7 @@ class CameraWatcher(threading.Thread):
         self.device = device
         self.cap = cv2.VideoCapture(self.device)
         if not self.cap.isOpened():
-            logger.error(f"Error: Could not open camera at index {self.model}")
+            logger.error(f"Error: Could not open camera at index {self.device}")
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
@@ -62,17 +62,26 @@ class CameraWatcher(threading.Thread):
                     best_target = ((x1, y1, x2, y2), conf)
         
         return best_target
+
+    def stop(self):
+        """Signal the camera watcher thread to stop."""
+        self.running = False
     
     def run(self):
-        while self.running:
-            success, frame = self.cap.read()
-            if not success:
-                print("Warning: Dropped frame or camera disconnected.")
-                break
-
-            # Run inference
-            results = self.model(frame, conf=0.5, verbose=False)
+        try:
+            while self.running:
+                success, frame = self.cap.read()
+                if not success:
+                    print("Warning: Dropped frame or camera disconnected.")
+                    break
                 
-            # Here we have the inference results. Find the biggest person.
-            person_info = self.find_primary_person(results, self.model)
-            logger.debug(f"Found person at {person_info}")
+                # Run inference
+                results = self.model(frame, conf=0.5, verbose=False)
+                
+                # Here we have the inference results. Find the biggest person.
+                person_info = self.find_primary_person(results, self.model)
+                logger.debug(f"Found person at {person_info}")
+        finally:
+            if self.cap is not None:
+                self.cap.release()
+

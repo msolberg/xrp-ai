@@ -8,6 +8,7 @@ This program reads the world state, waits for events, and then performs motor co
 import argparse
 import signal
 import sys
+import threading
 import time
 import logging
 
@@ -23,15 +24,20 @@ from nodes.executive_node import Executive
 
 RUNNING = True
 SERIAL_PORT = "/dev/ttyACM0"
+STOP_EVENT = threading.Event()
 
 # signal handling and logging
 def signal_handler(sig, frame):
     global RUNNING
     logger.info("Stopping robot...")
     RUNNING = False
+    STOP_EVENT.set()
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+def register_signal_handlers():
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+register_signal_handlers()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +108,7 @@ def parse_args():
 def motor_control_loop(bot, worldstate):
     """ Motor Control Loop. """
     ws = worldstate
-    while RUNNING:
+    while RUNNING and not STOP_EVENT.is_set():
         # Start by updating the world state.
         dist = bot.read_rangefinder()
         logger.debug(f"Rangefinder distance: {dist}cm")
@@ -120,7 +126,7 @@ def motor_control_loop(bot, worldstate):
         if ws.behavior == "IDLE":
             # Stop the motors
             bot.drive_stop()
-        time.sleep(0.02)
+        STOP_EVENT.wait(0.02)
     return
 
 def main():
@@ -144,22 +150,28 @@ def main():
 
     # Initialize the Audio Listener Thread
     audiolistener = AudioListener(eventloop, args.microphone)
-    audiolistener.start()
 
     # Initialize the Computer Vision Thread
     camerawatcher = CameraWatcher(eventloop, args.camera)
-    camerawatcher.start()
 
     # TODO: Initialize the Telemetry Thread
 
     # Start the brains of the operation.
     executive = Executive(eventloop, args.speaker)
-    executive.start()
 
     try:
+        audiolistener.start()
+        camerawatcher.start()
+        executive.start()
+
+        # Re-register signal handlers in case a library modified them
+        register_signal_handlers()
+        
         with XRPController(port=args.port) as bot:
             try:
                 motor_control_loop(bot, worldstate)
+            except KeyboardInterrupt:
+                logger.info("Interrupted by user.")
             finally:
                 logger.info("\nShutting down: stopping motors and turning off LED...")
                 try:
@@ -169,6 +181,17 @@ def main():
                     logger.warning(f"Warning during motor stop: {e}")
     except SerialException as se:
         logger.error(f"Unable to communicate with robot on port {args.port}: {se}")
+    finally:
+        logger.info("Stopping nodes")
+        workers = [w for w in (audiolistener, camerawatcher, executive) if w is not None]
+        for worker in workers:
+            worker.stop()
+        for worker in workers:
+            if worker.is_alive():
+                worker.join(timeout=5.0)
+                if worker.is_alive():
+                    logger.warning(f"{worker.__class__.__name__} did not exit within timeout.")
+        logger.info("Shutdown complete.")
 
 if __name__ == '__main__':
     main()

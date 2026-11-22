@@ -76,3 +76,6 @@ class AudioListener(threading.Thread):
                             rec.Reset()
                             self.awake = False
                             self.process_text(text)
+    
+    def stop(self):
+        self.running = False
