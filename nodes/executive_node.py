@@ -42,15 +42,14 @@ class Executive(threading.Thread):
         logger.info(f"Received event {event.event_type}")
         if event.event_type == "PROGRAM_START":
             self.play_wav('sounds/coin.wav')
+        if event.event_type == "WAKE_WORD":
+            self.play_wav('sounds/coin.wav')
         if event.event_type == "VOICE_COMMAND":
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
-                logger.info(f"Hello, there! {event.payload}")
             else:
-                self.play_wav('sounds/coin.wav')
                 resp = self.send_to_llm(event.payload['text'])
                 self.speak(resp)
-                logger.info(f"agent: {resp}")
 
     def play_wav(self, filename):
         """Plays a wav file"""
@@ -116,7 +115,7 @@ class Executive(threading.Thread):
         cleaned_text = cleaned_text.strip('"\'')
 
         if not self.playback:
-            logger.info(f"<cleaned_text>")
+            logger.info(f"<{cleaned_text}>")
             return
         
         audio_arrays = []

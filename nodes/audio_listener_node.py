@@ -64,6 +64,8 @@ class AudioListener(threading.Thread):
                         partial = json.loads(wake_rec.PartialResult()).get("partial", "")
                         if any(phrase in partial for phrase in self.wake_phrases):
                             logger.info("Wake word detected! Listening for command...")
+                            event = RotobotEvent('WAKE_WORD', {})
+                            self.event_queue.put(event)
                             wake_rec.Reset()
                             rec.Reset()
                             self.awake = True
