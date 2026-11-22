@@ -56,8 +56,13 @@ class AudioListener(threading.Thread):
         while self.running:
             logger.info(f"opening input stream on device {self.device}")
             with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device, dtype="int16", channels=1, callback=self.callback):
-                while True:
-                    data = self.audio_queue.get()
+                while self.running:
+                    try:
+                        data = self.audio_queue.get()
+                    except queue.Empty:
+                        continue
+                    if data is None or not self.running:
+                        break
                     
                     if not self.awake:
                         wake_rec.AcceptWaveform(data)
@@ -81,3 +86,5 @@ class AudioListener(threading.Thread):
     
     def stop(self):
         self.running = False
+        self.audio_queue.put(None)
+
