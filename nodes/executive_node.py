@@ -22,6 +22,7 @@ class Executive(threading.Thread):
         logger.info("Initializing Executive.")
         self.event_queue = event_queue
         self.playback_device = playback_device
+        self.playback = True
         self.llm_url = llm_url
         self.prompt = "You are a voice interface for a robot. Never respond with an emoji."
         self.context = []
@@ -39,6 +40,8 @@ class Executive(threading.Thread):
     
     def handle_event(self, event):
         logger.info(f"Received event {event.event_type}")
+        if event.event_type == "PROGRAM_START":
+            self.play_wav('sounds/coin.wav')
         if event.event_type == "VOICE_COMMAND":
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
@@ -51,18 +54,23 @@ class Executive(threading.Thread):
 
     def play_wav(self, filename):
         """Plays a wav file"""
+        if not self.playback:
+            logger.info(f"<{filename}>")
+            return
         with wave.open(filename, "rb") as wf:
-            samplerate = wf.getframerate()
+            sample_rate = wf.getframerate()
             channels = wf.getnchannels()
             frames = wf.readframes(wf.getnframes())
             
             # Convert raw PCM bytes to int16 numpy array and reshape for channels
             audio = np.frombuffer(frames, dtype=np.int16)
-            if channels > 1:
-                audio = audio.reshape(-1, channels)
-
-                sd.play(audio, samplerate=samplerate, device=self.playback_device)
-                sd.wait()
+            try:
+                if channels > 1:
+                    audio = audio.reshape(-1, channels)
+                    sd.play(audio, samplerate=sample_rate, device=self.playback_device)
+                    sd.wait()
+            except Exception as e:
+                logger.info(f"[Playback Error]: {e}")
     
     def send_to_llm(self, text):
         """Sends text to llama.cpp /completion and extracts 'content'."""
@@ -90,11 +98,11 @@ class Executive(threading.Thread):
                 self.context.append({"role": "assistant", "content": reply})
             return reply
         except urllib.error.HTTPError as e:
-            print(f"[HTTP Error {e.code}]: {e.read().decode('utf-8')}")
+            logger.info(f"[HTTP Error {e.code}]: {e.read().decode('utf-8')}")
         except urllib.error.URLError as e:
-            print(f"[Connection Error]: {e.reason}")
+            logger.info(f"[Connection Error]: {e.reason}")
         except Exception as e:
-            print(f"[Unexpected Error]: {e}")
+            logger.info(f"[Unexpected Error]: {e}")
         return None
 
     def speak(self, text):
@@ -107,6 +115,10 @@ class Executive(threading.Thread):
             cleaned_text = cleaned_text.split("\n\n")[-1].strip()
         cleaned_text = cleaned_text.strip('"\'')
 
+        if not self.playback:
+            logger.info(f"<cleaned_text>")
+            return
+        
         audio_arrays = []
         sample_rate = voice.config.sample_rate
 
@@ -116,7 +128,7 @@ class Executive(threading.Thread):
                 sample_rate = chunk.sample_rate
 
         if not audio_arrays:
-            print("[TTS Error] Piper produced no audio arrays.")
+            logger.info("[TTS Error] Piper produced no audio arrays.")
             return
 
         # Concatenate chunk arrays into one continuous buffer
@@ -127,7 +139,7 @@ class Executive(threading.Thread):
             sd.wait()
             self.speaking = False
         except Exception as e:
-            print(f"[Playback Error]: {e}")
+            logger.info(f"[Playback Error]: {e}")
             self.speaking = False
 
     def stop(self):
@@ -135,6 +147,12 @@ class Executive(threading.Thread):
 
     def run(self):
         self.clear_context()
+        # Let's see if we have an output device which can take playback:
+        devices = sd.query_devices()
+        if devices[self.playback_device]['max_output_channels'] == 0:
+            logger.info(f"Playback device {self.playback_device} has no output channels")
+            self.playback = False
+        
         while self.running:
             try:
                 event = self.event_queue.get()
