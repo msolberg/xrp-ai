@@ -12,7 +12,7 @@ class PerceptionState:
     target_bbox: Optional[Tuple[int, int, int, int]] = None
     target_error_x: float = 0.0          # Normalized [-1.0, 1.0]
     target_timestamp: float = 0.0
-    obstacle_distance_m: float = 2.0     # Ultrasonic rangefinder (HC-SR04)
+    obstacle_distance_cm: float = 2.0     # Ultrasonic rangefinder (HC-SR04)
     rangefinder_timestamp: float = 0.0
 
 @dataclass
@@ -49,6 +49,11 @@ class WorldState:
 
     # --- Worker Ingestion Methods (Thread-Safe) ---
 
+    def update_behavior(self, behavior):
+        with self._lock:
+            logger.info(f"Setting behavior to {behavior}")
+            self.behavior = behavior
+    
     def update_vision(self, label: Optional[str], bbox: Optional[Tuple[int, int, int, int]], error_x: float):
         with self._lock:
             self.perception.target_label = label
@@ -56,9 +61,10 @@ class WorldState:
             self.perception.target_error_x = error_x
             self.perception.target_timestamp = time.time()
 
-    def update_rangefinder(self, distance_m: float):
+    def update_rangefinder(self, distance_cm: float):
         with self._lock:
-            self.perception.obstacle_distance_m = distance_m
+            # TODO - this might not be the distance to the target
+            self.perception.obstacle_distance_cm = distance_cm
             self.perception.rangefinder_timestamp = time.time()
 
     def update_orientation(self, heading: float, yaw: float, pitch: float, roll: float):

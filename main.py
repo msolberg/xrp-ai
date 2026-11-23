@@ -26,6 +26,10 @@ RUNNING = True
 SERIAL_PORT = "/dev/ttyACM0"
 STOP_EVENT = threading.Event()
 
+DRIVE_EFFORT = .8
+FUDGE = .2
+STOP_DISTANCE = 40
+
 # signal handling and logging
 def signal_handler(sig, frame):
     global RUNNING
@@ -126,8 +130,37 @@ def motor_control_loop(bot, worldstate):
         if ws.behavior == "IDLE":
             # Stop the motors
             bot.drive_stop()
+        elif ws.behavior == "TRACKING":
+            # Track the person in view
+            if (worldstate.perception.target_label == "person"):
+                track_person(bot, worldstate)
         STOP_EVENT.wait(0.02)
     return
+
+def track_person(bot, worldstate):
+    behavior, perception, odometry, diagnostics = worldstate.get_snapshot()
+    logger.info(f"tracking person at {perception.target_error_x}")
+    if behavior == "TRACKING":
+        left_effort = 0
+        right_effort = 0
+        forward_effort = 0
+        
+        dist = perception.obstacle_distance_cm
+        if dist is not None and 0 < dist <= STOP_DISTANCE:
+            # Do not run into an obstacle!
+            forward_effort = 0
+
+        offset_x = perception.target_error_x
+        if abs(offset_x > .4):
+            # No need to strain if we're close to the center
+            offset_x = 0
+        # This sets up a pivot
+        # TODO - not proportial
+        left_effort = DRIVE_EFFORT * offset_x
+        right_effort = DRIVE_EFFORT * (offset_x * -1)
+        
+        # Adjust motor effort
+        bot.drive_effort(left_effort, right_effort)
 
 def main():
     """ Main loop """
@@ -152,12 +185,12 @@ def main():
     audiolistener = AudioListener(eventloop, args.microphone)
 
     # Initialize the Computer Vision Thread
-    camerawatcher = CameraWatcher(eventloop, args.camera)
+    camerawatcher = CameraWatcher(eventloop, args.camera, worldstate)
 
     # TODO: Initialize the Telemetry Thread
 
     # Start the brains of the operation.
-    executive = Executive(eventloop, args.speaker)
+    executive = Executive(eventloop, worldstate, args.speaker)
 
     try:
         audiolistener.start()

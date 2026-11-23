@@ -13,11 +13,12 @@ from piper import PiperVoice
 voice = PiperVoice.load("voices/en_US-lessac-medium.onnx")
 
 from state.eventloop import RotobotEvent
+from state.worldstate import WorldState
 
 logger = logging.getLogger(__name__)
 
 class Executive(threading.Thread):
-    def __init__(self, event_queue: queue.Queue, playback_device=4, llm_url="http://host.containers.internal:8080/v1/chat/completions"):
+    def __init__(self, event_queue: queue.Queue, worldstate, playback_device=4, llm_url="http://host.containers.internal:8080/v1/chat/completions"):
         super().__init__(daemon=True)
         logger.info("Initializing Executive.")
         self.event_queue = event_queue
@@ -26,6 +27,7 @@ class Executive(threading.Thread):
         self.llm_url = llm_url
         self.prompt = "You are a voice interface for a robot. Never respond with an emoji."
         self.context = []
+        self.worldstate = worldstate
         self.speaking = False
         self.running = True
     
@@ -43,8 +45,10 @@ class Executive(threading.Thread):
         if event.event_type == "PROGRAM_START":
             self.play_wav('sounds/coin.wav')
         if event.event_type == "WAKE_WORD":
+            self.worldstate.update_behavior("TRACKING")
             self.play_wav('sounds/coin.wav')
         if event.event_type == "VOICE_COMMAND":
+            self.worldstate.update_behavior("IDLE")
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
             else:
