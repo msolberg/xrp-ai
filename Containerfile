@@ -168,7 +168,8 @@ RUN rpm -ivh /tmp/epel-release-latest-9.noarch.rpm && \
         libatomic \
         libgomp \
         mesa-libGL \
-        glib2 && \
+        glib2 \
+        pipewire-utils pulseaudio-utils pipewire-alsa && \
     microdnf clean all && \
     rm -rf /var/cache/dnf /var/cache/yum
 
