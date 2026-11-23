@@ -138,7 +138,7 @@ def motor_control_loop(bot, worldstate):
     return
 
 def track_person(bot, worldstate):
-    behavior, perception, odometry, diagnostics = worldstate.get_snapshot()
+    behavior, perception, odometry, diagnostics, orientation = worldstate.get_snapshot()
     logger.info(f"tracking person at {perception.target_error_x}")
     if behavior == "TRACKING":
         left_effort = 0

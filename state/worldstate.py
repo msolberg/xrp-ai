@@ -104,5 +104,6 @@ class WorldState:
                 self.behavior,
                 PerceptionState(**self.perception.__dict__),
                 OdometryState(**self.odometry.__dict__),
-                DiagnosticsState(**self.diagnostics.__dict__)
+                DiagnosticsState(**self.diagnostics.__dict__),
+                OrientationState(**self.orientation.__dict__)
             )

@@ -3,6 +3,7 @@ import queue
 import threading
 import logging
 import json
+import os
 from ultralytics import YOLO
 from ultralytics.utils import LOGGER
 import cv2
@@ -32,10 +33,92 @@ class CameraWatcher(threading.Thread):
             self.fps = 30.0
         logger.info(f"Recording from camera {self.device} ({self.width}x{self.height} @ {self.fps:.1f} FPS)...")
         
+        self.rec_dir = "DCIM"
+        self.annotate_video = True
+        self.output = None
+        
         self.model = YOLO("yolo26n.pt")
         self.worldstate = worldstate
         
         self.running = True
+
+    def _get_output_filename(self):
+        # Returns the name of the next video file to write
+        nums = []
+        try:
+            files = os.listdir(self.rec_dir)
+            for f in files:
+                if f[-3:] == 'MP4':
+                    nums.append(int(f[4:8]))
+        except Exception as e:
+            logger.info(f"Couldn't read video output directory {self.rec_dir}: {e}")
+        if len(nums):
+            nums.sort()
+            n = nums[-1] + 1
+            filename = self.rec_dir + "/" + "RTBT" + f"{n:04d}" + ".MP4"
+        else:
+            filename = self.rec_dir + "/" + "RTBT0001.MP4"
+        return filename
+
+    def annotate_frame(self, frame, person_info):
+        overlay = frame.copy()
+        behavior, perception, odometry, diagnostics, orientation = self.worldstate.get_snapshot()
+
+        line1 = f"{behavior}"
+        if perception.target_label:
+            line1 = line1 + f" T:{perception.target_error_x:.2f} O:{perception.obstacle_distance_cm:.2f}"
+        line2 = f"V:{odometry.linear_velocity:.2f} H:{orientation.heading:.2f}"
+        
+        # Text box properties
+        box_width = 320
+        box_height = 80
+        margin = 15
+        
+        # Box top-left: (x1, y1), bottom-right: (x2, y2)
+        x1 = margin
+        y1 = self.height - margin - box_height
+        x2 = margin + box_width
+        y2 = self.height - margin
+        
+        # Text baselines positioned inside the badge
+        line1_pos = (x1 + 10, y1 + 30)
+        line2_pos = (x1 + 10, y1 + 65)
+        
+        # Text appearance settings
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        text_color = (0, 255, 0)       # Green (BGR)
+        thickness = 2
+        
+        # Draw a dark background rectangle in the bottom-left for readability
+        cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 0), -1)
+        # Draw Line 1
+        cv2.putText(
+            frame,
+            line1,
+            line1_pos,
+            font,
+            font_scale,
+            text_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        
+        # Draw Line 2 (offset y down to avoid overlap)
+        cv2.putText(
+            frame,
+            line2,
+            line2_pos,
+            font,
+            font_scale,
+            text_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        
+        # Blend the frame and the overlay
+        output = cv2.addWeighted(frame, 0.5, overlay, 0.5, 0)
+        return output
 
     def find_primary_person(self, results, model):
         """
@@ -93,12 +176,25 @@ class CameraWatcher(threading.Thread):
         bbox = tuple(int(round(v)) for v in coords)
         self.worldstate.update_vision("person", bbox, error_x)
     
+    def record(self):
+        """Record the video stream to a file"""
+        output_filename = self._get_output_filename()
+        self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        self.output = cv2.VideoWriter(output_filename, self.fourcc, self.fps, (self.width, self.height))
+
+    def stop_recording(self):
+        """Stop recording"""
+        if self.output is not None:
+            self.output.release()
+            self.output = None
+    
     def stop(self):
         """Signal the camera watcher thread to stop."""
         self.running = False
     
     def run(self):
         try:
+            self.record()
             while self.running:
                 success, frame = self.cap.read()
                 if not success:
@@ -107,11 +203,20 @@ class CameraWatcher(threading.Thread):
                 
                 # Run inference
                 results = self.model(frame, conf=0.5, verbose=False)
+                labeled_frame = results[0].plot()
                 
                 # Here we have the inference results. Find the biggest person.
                 person_info = self.find_primary_person(results, self.model)
                 logger.debug(f"Found person at {person_info}")
                 self._update_worldstate_vision(person_info, frame)
+                
+                if self.output:
+                    if self.annotate_video:
+                        f = self.annotate_frame(labeled_frame, person_info)
+                    else:
+                        f = frame
+                    self.output.write(f)
         finally:
             if self.cap is not None:
+                self.stop_recording()
                 self.cap.release()
