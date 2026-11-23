@@ -69,8 +69,8 @@ def parse_args():
     parser.add_argument(
         "--speaker",
         type=int,
-        default=0,
-        help="Speaker device index (default: 0)",
+        default=3,
+        help="Speaker device index (default: 3)",
     )
     parser.add_argument(
         "--port",
