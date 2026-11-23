@@ -3,7 +3,9 @@ import queue
 import threading
 import logging
 import json
+import os
 import sounddevice as sd
+import soundfile as sf
 from typing import Optional, Dict, Any
 from vosk import Model, KaldiRecognizer, SetLogLevel
 
@@ -31,12 +33,16 @@ class AudioListener(threading.Thread):
         self.wake_phrases = ["row toe bot", "rotor bot", "row to bot"]
         self.wake_grammar = json.dumps(self.wake_phrases + ["[unk]"])
         self.awake = False
+        self.rec_dir = "DCIM"
+        self.output = None
         self.running = True
 
     def callback(self, indata, frames, time, status):
         """This is called (from a separate thread) for each audio block."""
         if status:
             logger.warning(f"{status}")
+        if self.output is not None:
+            self.output.write(indata)
         if not self.talking:
             self.audio_queue.put(bytes(indata))
 
@@ -49,13 +55,43 @@ class AudioListener(threading.Thread):
             event = RotobotEvent('VOICE_COMMAND', {"text": text})
             self.event_queue.put(event)
 
+    def _get_output_filename(self):
+        # Returns the name of the next audio file to write
+        nums = []
+        try:
+            files = os.listdir(self.rec_dir)
+            for f in files:
+                if f[-3:] == 'WAV':
+                    nums.append(int(f[4:8]))
+        except Exception as e:
+            logger.info(f"Couldn't read audio output directory {self.rec_dir}: {e}")
+        if len(nums):
+            nums.sort()
+            n = nums[-1] + 1
+            filename = self.rec_dir + "/" + "RTBT" + f"{n:04d}" + ".WAV"
+        else:
+            filename = self.rec_dir + "/" + "RTBT0001.WAV"
+        return filename
+    
+    def record(self):
+        """Record the audio stream to a file"""
+        output_filename = self._get_output_filename()
+        self.output = sf.SoundFile(output_filename, mode='x', samplerate=self.samplerate, channels=1, subtype='PCM_16')
+    
+    def stop_recording(self):
+        """Stop recording"""
+        if self.output is not None:
+            self.output.close()
+            self.output = None
+    
     def run(self):
         wake_rec = KaldiRecognizer(self.model, self.samplerate, self.wake_grammar)
         rec = KaldiRecognizer(self.model, self.samplerate)
-        
+
+        self.record()
         while self.running:
             logger.info(f"opening input stream on device {self.device}")
-            with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device, dtype="int16", channels=1, callback=self.callback):
+            with sd.InputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device, dtype="int16", channels=1, callback=self.callback):
                 while self.running:
                     try:
                         data = self.audio_queue.get()
@@ -86,5 +122,7 @@ class AudioListener(threading.Thread):
     
     def stop(self):
         self.running = False
+        if self.output is not None:
+            self.stop_recording()
         self.audio_queue.put(None)
 

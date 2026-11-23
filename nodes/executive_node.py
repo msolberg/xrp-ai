@@ -28,10 +28,20 @@ class Executive(threading.Thread):
         self.prompt = "You are a voice interface for a robot. Never respond with an emoji."
         self.context = []
         self.worldstate = worldstate
+        self.rec_dir = "DCIM"
         self.speaking = False
         self.running = True
     
     def clear_context(self):
+        # Save the context if there's anything in there
+        if len(self.context) > 0:
+            try:
+                filename = "DCIM/" + "RTBT" + str(int(time.time())) + ".TXT"
+                with open(filename, "w", encoding="utf-8") as file:
+                    json.dump(self.context, file, indent=4)
+            except Exception as e:
+                logger.info(f"Unable to save context - {e}")
+        # Reset the context
         self.context = [
             {
                 "role": "system",
@@ -51,6 +61,9 @@ class Executive(threading.Thread):
             self.worldstate.update_behavior("IDLE")
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
+            elif 'clear context' in event.payload['text']:
+                self.clear_context()
+                self.speak("Cleared context")
             else:
                 resp = self.send_to_llm(event.payload['text'])
                 self.speak(resp)
@@ -146,6 +159,7 @@ class Executive(threading.Thread):
             self.speaking = False
 
     def stop(self):
+        self.clear_context()
         self.running = False
 
     def run(self):
