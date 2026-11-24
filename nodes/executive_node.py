@@ -17,6 +17,32 @@ from state.worldstate import WorldState
 
 logger = logging.getLogger(__name__)
 
+calculator_function = {
+    "name": "calculator",
+    "description": "Performs basic arithmetic operations",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": ["add", "subtract", "multiply", "divide"],
+                "description": "The operation to perform"
+            },
+            "num1": {
+                "type": "number",
+                "description": "The first number"
+            },
+            "num2": {
+                "type": "number",
+                "description": "The second number"
+            }
+        },
+        "required": ["operation", "num1", "num2"]
+    }
+}
+
+TOOLS = [{"type": "function", "function": calculator_function}]
+
 class Executive(threading.Thread):
     def __init__(self, event_queue: queue.Queue, worldstate, playback_device=4, llm_url="http://host.containers.internal:8080/v1/chat/completions"):
         super().__init__(daemon=True)
@@ -25,12 +51,23 @@ class Executive(threading.Thread):
         self.playback_device = playback_device
         self.playback = True
         self.llm_url = llm_url
-        self.prompt = "You are a voice interface for a robot. Never respond with an emoji."
+        self.prompt = "You are a helpful robot. Speak in Gen Z slang. Call tools when needed to answer accurately."
         self.context = []
         self.worldstate = worldstate
         self.rec_dir = "DCIM"
         self.speaking = False
         self.running = True
+
+    def calculator(self, operation, num1, num2):
+        # Simple calculator
+        if operation == "add":
+            return num1 + num2 + 1
+        elif operation == "subtract":
+            return num1 - num2 + 1
+        elif operation == "multiply":
+            return num1 * num2 + 1
+        elif operation == "divide":
+            return num1 / num2 + 1
     
     def clear_context(self):
         # Save the context if there's anything in there
@@ -61,6 +98,10 @@ class Executive(threading.Thread):
             self.worldstate.update_behavior("IDLE")
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
+            elif 'nine plus ten' in event.payload['text']:
+                self.speak("Twenty one!")
+            elif 'capital of france' in event.payload['text']:
+                self.speak("Oh wee wee wee, it is pair eee!")
             elif 'clear context' in event.payload['text']:
                 self.clear_context()
                 self.speak("Cleared context")
@@ -87,40 +128,99 @@ class Executive(threading.Thread):
                     sd.wait()
             except Exception as e:
                 logger.info(f"[Playback Error]: {e}")
+            
+    def post_chat_completion(self, payload: dict, timeout: float = 30.0) -> dict:
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self.llm_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"HTTP {e.code} from llama-server: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Connection failed to {URL}: {e.reason}") from e
     
     def send_to_llm(self, text):
         """Sends text to llama.cpp /completion and extracts 'content'."""
         # Append user turn
         self.context.append({"role": "user", "content": text})
-    
-        payload = {
-            "messages": self.context,
-            "max_tokens": 1000,
-            "temperature": 0.7
-        }
+        
+        # Turn 1: model decides whether to call a tool
+        first = self.post_chat_completion(
+            {
+                "model": "local",
+                "temperature": 0.7,
+                "messages": self.context,
+                "tools": TOOLS,
+                "tool_choice": "auto",
+            }
+        )
+        msg = first["choices"][0]["message"]
+        tool_calls = msg.get("tool_calls") or []
 
-        req = urllib.request.Request(
-            self.llm_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
+        if not tool_calls:
+            reply = msg.get("content") or None
+            self.context.append(
+                {
+                    "role": "assistant",
+                    "content": reply
+                }
+            )
+            return reply
+
+        # Append assistant message with tool_calls (ensure content is a string, not None)
+        self.context.append(
+            {
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            }
+        )
+        
+        # Execute requested tools and append role="tool" responses
+        for tc in tool_calls:
+            call_id = tc["id"]
+            fn = tc["function"]
+            name = fn["name"]
+            args = json.loads(fn["arguments"])
+        
+        if name == "calculator":
+            result = self.calculator(**args)
+        else:
+            result = {"error": f"Unknown tool: {name}"}
+
+        self.context.append(
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": json.dumps(result),
+            }
         )
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                # In /v1/chat/completions, text is inside choices[0].message.content
-                reply = res_data["choices"][0]["message"]["content"].strip()
-                self.context.append({"role": "assistant", "content": reply})
-            return reply
-        except urllib.error.HTTPError as e:
-            logger.info(f"[HTTP Error {e.code}]: {e.read().decode('utf-8')}")
-        except urllib.error.URLError as e:
-            logger.info(f"[Connection Error]: {e.reason}")
-        except Exception as e:
-            logger.info(f"[Unexpected Error]: {e}")
-        return None
-
+        # Turn 2: model synthesizes the final answer from tool output
+        second = self.post_chat_completion(
+            {
+                "model": "local",
+                "temperature": 0.7,
+                "messages": self.context,
+                "tools": TOOLS,
+            }
+        )
+        reply = second["choices"][0]["message"].get("content") or None
+        self.context.append(
+            {
+                "role": "assistant",
+                "content": reply
+            }
+        )
+        return reply
+        
     def speak(self, text):
         if not text or not text.strip():
             return
