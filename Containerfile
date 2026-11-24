@@ -198,6 +198,7 @@ WORKDIR /app
 # Copy application code
 COPY main.py requirements.txt ./
 COPY nodes/ ./nodes/
+COPY prompts/ ./prompts/
 COPY state/ ./state/
 COPY tools/ ./tools/
 

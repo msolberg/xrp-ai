@@ -19,7 +19,7 @@ CALCULATOR_TOOL = Tool(
     handler=calculator,
     schema={
         "name": "calculator",
-        "description": "Performs basic arithmetic operations",
+        "description": "Performs arithmetic operations (add, subtract, multiply, divide). Always use this tool for any math calculation instead of computing in your head.",
         "parameters": {
             "type": "object",
             "properties": {

@@ -26,7 +26,8 @@ class Executive(threading.Thread):
         self.playback_device = playback_device
         self.playback = True
         self.llm_url = llm_url
-        self.prompt = "You are a helpful robot. Speak in Gen Z slang. Call tools when needed to answer accurately."
+        self.prompt_file = "prompts/executive.md"
+        self.llm_temperature = 0.2
         self.context = []
         self.worldstate = worldstate
         self.rec_dir = "DCIM"
@@ -42,11 +43,18 @@ class Executive(threading.Thread):
                     json.dump(self.context, file, indent=4)
             except Exception as e:
                 logger.info(f"Unable to save context - {e}")
+        # Read the prompt from the a file
+        prompt = "You are a helpful robot."
+        try:
+            with open(self.prompt_file, 'r', encoding='utf-8') as file:
+                prompt = file.read()
+        except Exception as e:
+            logger.info(f"Unable to read system prompt {self.prompt}, {e}")
         # Reset the context
         self.context = [
             {
                 "role": "system",
-                "content": self.prompt
+                "content": prompt
             }
         ]
         logger.debug(f"Cleared context")
@@ -105,10 +113,10 @@ class Executive(threading.Thread):
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            detail = exc.read().decode("utf-8", errors="replace")
+            detail = e.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"HTTP {e.code} from llama-server: {detail}") from e
         except urllib.error.URLError as e:
-            raise RuntimeError(f"Connection failed to {URL}: {e.reason}") from e
+            raise RuntimeError(f"Connection failed to {self.llm_url}: {e.reason}") from e
     
     def send_to_llm(self, text):
         """Sends text to llama.cpp /completion and extracts 'content'."""
@@ -119,7 +127,7 @@ class Executive(threading.Thread):
         first = self.post_chat_completion(
             {
                 "model": "local",
-                "temperature": 0.7,
+                "temperature": self.llm_temperature,
                 "messages": self.context,
                 "tools": TOOLS,
                 "tool_choice": "auto",
@@ -133,7 +141,7 @@ class Executive(threading.Thread):
             self.context.append(
                 {
                     "role": "assistant",
-                    "content": reply
+                    "content": reply,
                 }
             )
             return reply
@@ -151,11 +159,15 @@ class Executive(threading.Thread):
         ctx = ToolContext(worldstate=self.worldstate)
         for tc in tool_calls:
             fn = tc["function"]
+            tool_name = fn["name"]
+            tool_args = fn.get("arguments")
+            tool_output = execute_tool(tool_name, tool_args, ctx)
+            logger.info("Executed tool %s(%s) -> %s", tool_name, tool_args, tool_output)
             self.context.append(
                 {
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": execute_tool(fn["name"], fn.get("arguments"), ctx),
+                    "content": tool_output,
                 }
             )
 
@@ -163,7 +175,7 @@ class Executive(threading.Thread):
         second = self.post_chat_completion(
             {
                 "model": "local",
-                "temperature": 0.7,
+                "temperature": self.llm_temperature,
                 "messages": self.context,
                 "tools": TOOLS,
             }
