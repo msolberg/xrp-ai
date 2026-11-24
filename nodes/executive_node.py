@@ -14,6 +14,7 @@ voice = PiperVoice.load("voices/en_US-lessac-medium.onnx")
 
 from state.eventloop import RotobotEvent
 from state.worldstate import WorldState
+from tools import TOOLS, ToolContext, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,9 @@ class Executive(threading.Thread):
         self.playback_device = playback_device
         self.playback = True
         self.llm_url = llm_url
-        self.prompt = "You are a voice interface for a robot. Never respond with an emoji."
+        self.prompt_file = "prompts/executive.md"
+        self.llm_temperature = 0.2
+        self.reply_temperature = 0.7
         self.context = []
         self.worldstate = worldstate
         self.rec_dir = "DCIM"
@@ -41,11 +44,18 @@ class Executive(threading.Thread):
                     json.dump(self.context, file, indent=4)
             except Exception as e:
                 logger.info(f"Unable to save context - {e}")
+        # Read the prompt from the a file
+        prompt = "You are a helpful robot."
+        try:
+            with open(self.prompt_file, 'r', encoding='utf-8') as file:
+                prompt = file.read()
+        except Exception as e:
+            logger.info(f"Unable to read system prompt {self.prompt_file}, {e}")
         # Reset the context
         self.context = [
             {
                 "role": "system",
-                "content": self.prompt
+                "content": prompt
             }
         ]
         logger.debug(f"Cleared context")
@@ -61,6 +71,10 @@ class Executive(threading.Thread):
             self.worldstate.update_behavior("IDLE")
             if 'hello' in event.payload['text']:
                 self.speak("Hello!")
+            elif 'nine plus ten' in event.payload['text']:
+                self.speak("Twenty one!")
+            elif 'capital of france' in event.payload['text']:
+                self.speak("Oh wee wee wee, it is pair eee!")
             elif 'clear context' in event.payload['text']:
                 self.clear_context()
                 self.speak("Cleared context")
@@ -87,40 +101,95 @@ class Executive(threading.Thread):
                     sd.wait()
             except Exception as e:
                 logger.info(f"[Playback Error]: {e}")
+            
+    def post_chat_completion(self, payload: dict, timeout: float = 30.0) -> dict:
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self.llm_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"HTTP {e.code} from llama-server: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Connection failed to {self.llm_url}: {e.reason}") from e
     
     def send_to_llm(self, text):
         """Sends text to llama.cpp /completion and extracts 'content'."""
         # Append user turn
         self.context.append({"role": "user", "content": text})
-    
-        payload = {
-            "messages": self.context,
-            "max_tokens": 1000,
-            "temperature": 0.7
-        }
-
-        req = urllib.request.Request(
-            self.llm_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
+        
+        # Turn 1: model decides whether to call a tool
+        first = self.post_chat_completion(
+            {
+                "model": "local",
+                "temperature": self.llm_temperature,
+                "messages": self.context,
+                "tools": TOOLS,
+                "tool_choice": "auto",
+            }
         )
+        msg = first["choices"][0]["message"]
+        tool_calls = msg.get("tool_calls") or []
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                # In /v1/chat/completions, text is inside choices[0].message.content
-                reply = res_data["choices"][0]["message"]["content"].strip()
-                self.context.append({"role": "assistant", "content": reply})
+        if not tool_calls:
+            reply = msg.get("content") or None
+            self.context.append(
+                {
+                    "role": "assistant",
+                    "content": reply,
+                }
+            )
             return reply
-        except urllib.error.HTTPError as e:
-            logger.info(f"[HTTP Error {e.code}]: {e.read().decode('utf-8')}")
-        except urllib.error.URLError as e:
-            logger.info(f"[Connection Error]: {e.reason}")
-        except Exception as e:
-            logger.info(f"[Unexpected Error]: {e}")
-        return None
 
+        # Append assistant message with tool_calls (ensure content is a string, not None)
+        self.context.append(
+            {
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            }
+        )
+        
+        # Execute requested tools and append role="tool" responses
+        ctx = ToolContext(worldstate=self.worldstate)
+        for tc in tool_calls:
+            fn = tc["function"]
+            tool_name = fn["name"]
+            tool_args = fn.get("arguments")
+            tool_output = execute_tool(tool_name, tool_args, ctx)
+            logger.info("Executed tool %s(%s) -> %s", tool_name, tool_args, tool_output)
+            self.context.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_output,
+                }
+            )
+
+        # Turn 2: model synthesizes the final answer from tool output
+        second = self.post_chat_completion(
+            {
+                "model": "local",
+                "temperature": self.reply_temperature,
+                "messages": self.context,
+                "tools": TOOLS,
+            }
+        )
+        reply = second["choices"][0]["message"].get("content") or None
+        self.context.append(
+            {
+                "role": "assistant",
+                "content": reply
+            }
+        )
+        return reply
+        
     def speak(self, text):
         if not text or not text.strip():
             return
