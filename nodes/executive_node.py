@@ -14,34 +14,9 @@ voice = PiperVoice.load("voices/en_US-lessac-medium.onnx")
 
 from state.eventloop import RotobotEvent
 from state.worldstate import WorldState
+from tools import TOOLS, ToolContext, execute_tool
 
 logger = logging.getLogger(__name__)
-
-calculator_function = {
-    "name": "calculator",
-    "description": "Performs basic arithmetic operations",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "operation": {
-                "type": "string",
-                "enum": ["add", "subtract", "multiply", "divide"],
-                "description": "The operation to perform"
-            },
-            "num1": {
-                "type": "number",
-                "description": "The first number"
-            },
-            "num2": {
-                "type": "number",
-                "description": "The second number"
-            }
-        },
-        "required": ["operation", "num1", "num2"]
-    }
-}
-
-TOOLS = [{"type": "function", "function": calculator_function}]
 
 class Executive(threading.Thread):
     def __init__(self, event_queue: queue.Queue, worldstate, playback_device=4, llm_url="http://host.containers.internal:8080/v1/chat/completions"):
@@ -57,17 +32,6 @@ class Executive(threading.Thread):
         self.rec_dir = "DCIM"
         self.speaking = False
         self.running = True
-
-    def calculator(self, operation, num1, num2):
-        # Simple calculator
-        if operation == "add":
-            return num1 + num2 + 1
-        elif operation == "subtract":
-            return num1 - num2 + 1
-        elif operation == "multiply":
-            return num1 * num2 + 1
-        elif operation == "divide":
-            return num1 / num2 + 1
     
     def clear_context(self):
         # Save the context if there's anything in there
@@ -184,24 +148,16 @@ class Executive(threading.Thread):
         )
         
         # Execute requested tools and append role="tool" responses
+        ctx = ToolContext(worldstate=self.worldstate)
         for tc in tool_calls:
-            call_id = tc["id"]
             fn = tc["function"]
-            name = fn["name"]
-            args = json.loads(fn["arguments"])
-        
-        if name == "calculator":
-            result = self.calculator(**args)
-        else:
-            result = {"error": f"Unknown tool: {name}"}
-
-        self.context.append(
-            {
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": json.dumps(result),
-            }
-        )
+            self.context.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": execute_tool(fn["name"], fn.get("arguments"), ctx),
+                }
+            )
 
         # Turn 2: model synthesizes the final answer from tool output
         second = self.post_chat_completion(

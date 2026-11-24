@@ -199,6 +199,7 @@ WORKDIR /app
 COPY main.py requirements.txt ./
 COPY nodes/ ./nodes/
 COPY state/ ./state/
+COPY tools/ ./tools/
 
 # Create directories for mounted runtime assets (Piper voices, WAVs, Vosk/YOLO models)
 RUN mkdir -p /app/voices /app/sounds /app/models /app/.cache/vosk && \
