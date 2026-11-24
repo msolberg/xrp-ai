@@ -28,6 +28,7 @@ class Executive(threading.Thread):
         self.llm_url = llm_url
         self.prompt_file = "prompts/executive.md"
         self.llm_temperature = 0.2
+        self.reply_temperature = 0.7
         self.context = []
         self.worldstate = worldstate
         self.rec_dir = "DCIM"
@@ -49,7 +50,7 @@ class Executive(threading.Thread):
             with open(self.prompt_file, 'r', encoding='utf-8') as file:
                 prompt = file.read()
         except Exception as e:
-            logger.info(f"Unable to read system prompt {self.prompt}, {e}")
+            logger.info(f"Unable to read system prompt {self.prompt_file}, {e}")
         # Reset the context
         self.context = [
             {
@@ -175,7 +176,7 @@ class Executive(threading.Thread):
         second = self.post_chat_completion(
             {
                 "model": "local",
-                "temperature": self.llm_temperature,
+                "temperature": self.reply_temperature,
                 "messages": self.context,
                 "tools": TOOLS,
             }
