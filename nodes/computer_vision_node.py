@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 LOGGER.setLevel(logging.ERROR)
 
+TARGET_FPS = 30.0
+
+
 class CameraWatcher(threading.Thread):
     def __init__(self, event_queue: queue.Queue, device, worldstate):
         super().__init__(daemon=True)
@@ -24,13 +27,13 @@ class CameraWatcher(threading.Thread):
         self.cap = cv2.VideoCapture(self.device)
         if not self.cap.isOpened():
             logger.error(f"Error: Could not open camera at index {self.device}")
+        else:
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.cap.set(cv2.CAP_PROP_FPS, TARGET_FPS)
+
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        
-        # Fallback FPS if the camera driver returns 0 or an invalid number
-        if self.fps <= 0:
-            self.fps = 30.0
+        self.fps = TARGET_FPS
         logger.info(f"Recording from camera {self.device} ({self.width}x{self.height} @ {self.fps:.1f} FPS)...")
         
         self.rec_dir = "DCIM"
@@ -40,6 +43,7 @@ class CameraWatcher(threading.Thread):
         self.model = YOLO("yolo26n.pt")
         self.worldstate = worldstate
         
+        self._stop_event = threading.Event()
         self.running = True
 
     def _get_output_filename(self):
@@ -191,10 +195,22 @@ class CameraWatcher(threading.Thread):
     def stop(self):
         """Signal the camera watcher thread to stop."""
         self.running = False
+        self._stop_event.set()
+
+    def _pace_frame(self, next_frame_time: float, frame_interval: float) -> float:
+        """Cap loop rate to target FPS without bursting after slow inference."""
+        next_frame_time += frame_interval
+        remaining = next_frame_time - time.monotonic()
+        if remaining > 0:
+            self._stop_event.wait(remaining)
+            return next_frame_time
+        return time.monotonic()
     
     def run(self):
         try:
             self.record()
+            frame_interval = 1.0 / self.fps
+            next_frame_time = time.monotonic()
             while self.running:
                 success, frame = self.cap.read()
                 if not success:
@@ -216,6 +232,8 @@ class CameraWatcher(threading.Thread):
                     else:
                         f = frame
                     self.output.write(f)
+
+                next_frame_time = self._pace_frame(next_frame_time, frame_interval)
         finally:
             if self.cap is not None:
                 self.stop_recording()
