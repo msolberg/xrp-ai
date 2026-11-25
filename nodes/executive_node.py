@@ -75,6 +75,12 @@ class Executive(threading.Thread):
                 self.speak("Twenty one!")
             elif 'capital of france' in event.payload['text']:
                 self.speak("Oh wee wee wee, it is pair eee!")
+            elif 'follow me' in event.payload['text']:
+                self.worldstate.update_behavior("FOLLOWING")
+                self.play_wav('sounds/coin.wav')
+            elif 'stop following' in event.payload['text']:
+                self.worldstate.update_behavior("IDLE")
+                self.play_wav('sounds/coin.wav')
             elif 'clear context' in event.payload['text']:
                 self.clear_context()
                 self.speak("Cleared context")

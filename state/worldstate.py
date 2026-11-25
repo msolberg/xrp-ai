@@ -11,6 +11,7 @@ class PerceptionState:
     target_label: Optional[str] = None
     target_bbox: Optional[Tuple[int, int, int, int]] = None
     target_error_x: float = 0.0          # Normalized [-1.0, 1.0]
+    target_last_error_x: float = 0.0     # This is the last time we saw it.
     target_timestamp: float = 0.0
     obstacle_distance_cm: float = 2.0     # Ultrasonic rangefinder (HC-SR04)
     rangefinder_timestamp: float = 0.0
@@ -59,6 +60,10 @@ class WorldState:
             self.perception.target_label = label
             self.perception.target_bbox = bbox
             self.perception.target_error_x = error_x
+            # If the target has left the frame, error_x will be set to 0.
+            # This will save the last error_x so the robot can guess where to look
+            if error_x != 0:
+                self.perception.target_last_error_x = error_x
             self.perception.target_timestamp = time.time()
 
     def update_rangefinder(self, distance_cm: float):

@@ -134,6 +134,8 @@ def motor_control_loop(bot, worldstate):
             # Track the person in view
             if (worldstate.perception.target_label == "person"):
                 track_person(bot, worldstate)
+        elif ws.behavior == "FOLLOWING":
+            follow_person(bot, worldstate)
         STOP_EVENT.wait(0.02)
     return
 
@@ -159,6 +161,63 @@ def track_person(bot, worldstate):
         left_effort = DRIVE_EFFORT * offset_x
         right_effort = DRIVE_EFFORT * (offset_x * -1)
         
+        # Adjust motor effort
+        bot.drive_effort(left_effort, right_effort)
+
+def follow_person(bot, worldstate):
+    behavior, perception, odometry, diagnostics, orientation = worldstate.get_snapshot()
+    logger.info(f"following person at {perception.target_error_x}")
+    if behavior == "FOLLOWING":
+        left_effort = 0
+        right_effort = 0
+        dist = perception.obstacle_distance_cm
+        
+        offset_x = perception.target_error_x
+        last_error_x = perception.target_last_error_x
+        # If there's a person, we're following.
+        if worldstate.perception.target_label == "person":
+            logger.debug(f"Following person. error_x is {offset_x}")
+            if dist is not None and 0 < dist <= STOP_DISTANCE:
+                bot.drive_stop()
+                return
+            else:
+                # This sets up a pivot
+                left_effort = DRIVE_EFFORT * offset_x
+                right_effort = DRIVE_EFFORT * (offset_x * -1)
+                
+                # Right now we're pivoting.
+                # If we want to follow, we have to get rid of the negative efforts
+                if offset_x < -FUDGE:
+                    # Target is on the left - slow the left motor
+                    left_effort = DRIVE_EFFORT * abs(offset_x ** .5)
+                    right_effort = DRIVE_EFFORT
+                elif -FUDGE <= offset_x <= FUDGE:
+                    # Target is in the middle - full speed
+                    left_effort = DRIVE_EFFORT
+                    right_effort = DRIVE_EFFORT
+                elif offset_x > FUDGE:
+                    # Target is on the right - slow the right motor
+                    left_effort = DRIVE_EFFORT
+                    right_effort = DRIVE_EFFORT * abs(offset_x ** .5)
+            
+                # Round out the numbers
+                left_effort = round(left_effort, 3)
+                right_effort = round(right_effort, 3)
+        
+        else: # No person
+            logger.debug(f"Lost person. Last error_x was {last_error_x}")
+            if dist is not None and 0 < dist <= STOP_DISTANCE:
+                bot.drive_stop()
+                return
+            # Pivot slowly and wait for someone to enter the frame.
+            GOVERNOR = .5
+            if last_error_x <= 0:
+                left_effort = -DRIVE_EFFORT * GOVERNOR
+                right_effort = DRIVE_EFFORT * GOVERNOR
+            elif last_error_x > 0:
+                left_effort = DRIVE_EFFORT * GOVERNOR
+                right_effort = -DRIVE_EFFORT * GOVERNOR
+            
         # Adjust motor effort
         bot.drive_effort(left_effort, right_effort)
 

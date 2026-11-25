@@ -70,8 +70,8 @@ class CameraWatcher(threading.Thread):
 
         line1 = f"{behavior}"
         if perception.target_label:
-            line1 = line1 + f" T:{perception.target_error_x:.2f} O:{perception.obstacle_distance_cm:.2f}"
-        line2 = f"V:{odometry.linear_velocity:.2f} H:{orientation.heading:.2f}"
+            line1 = line1 + f" T:{perception.target_error_x:.2f}"
+        line2 = f"V:{odometry.linear_velocity:.2f} H:{orientation.heading:.2f} O:{perception.obstacle_distance_cm:.2f}"
         
         # Text box properties
         box_width = 320
@@ -205,10 +205,30 @@ class CameraWatcher(threading.Thread):
             self._stop_event.wait(remaining)
             return next_frame_time
         return time.monotonic()
+
+    def _write_video_frame(self, frame, now: float) -> None:
+        """Write frame to VideoWriter, repeating if needed so 30 FPS output stays 1x real-time."""
+        if not self.output:
+            return
+        if self._last_write_time is None:
+            self._last_write_time = now
+            self._frame_debt = 0.0
+            self.output.write(frame)
+            return
+
+        elapsed = min(max(0.0, now - self._last_write_time), 1.0)
+        self._last_write_time = now
+        self._frame_debt += elapsed * self.fps
+        repeat_count = max(1, int(round(self._frame_debt)))
+        self._frame_debt -= repeat_count
+        for _ in range(repeat_count):
+            self.output.write(frame)
     
     def run(self):
         try:
             self.record()
+            self._last_write_time = None
+            self._frame_debt = 0.0
             frame_interval = 1.0 / self.fps
             next_frame_time = time.monotonic()
             while self.running:
@@ -218,12 +238,14 @@ class CameraWatcher(threading.Thread):
                     break
                 
                 # Run inference
+                inference_start = time.perf_counter()
                 results = self.model(frame, conf=0.5, verbose=False)
+                inference_ms = (time.perf_counter() - inference_start) * 1000.0
                 labeled_frame = results[0].plot()
                 
                 # Here we have the inference results. Find the biggest person.
                 person_info = self.find_primary_person(results, self.model)
-                logger.debug(f"Found person at {person_info}")
+                logger.debug(f"Found person at {person_info} (inference: {inference_ms:.1f}ms)")
                 self._update_worldstate_vision(person_info, frame)
                 
                 if self.output:
@@ -231,7 +253,7 @@ class CameraWatcher(threading.Thread):
                         f = self.annotate_frame(labeled_frame, person_info)
                     else:
                         f = frame
-                    self.output.write(f)
+                    self._write_video_frame(f, time.monotonic())
 
                 next_frame_time = self._pace_frame(next_frame_time, frame_interval)
         finally:
